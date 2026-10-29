@@ -102,8 +102,10 @@ textarea.in{min-height:70px;resize:vertical}
 .btn.sm{width:auto;margin:0;padding:8px 12px;font-size:14px;font-weight:600}
 .btn:disabled{opacity:.5}
 .ai{background:var(--card);border-radius:12px;padding:10px 12px;margin-top:8px;border-left:4px solid var(--ink);font-size:14px;line-height:1.55}
-.ai .alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.ai .alts button{border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;padding:3px 10px;font-size:13px}
+.alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.alts button{border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;padding:4px 11px;font-size:13px}
+.alts button.mine{background:var(--ink);color:#fff}
+.near{margin-top:8px}
 .badge{display:inline-block;font-size:11px;border-radius:99px;padding:1px 8px;color:#fff;margin-left:4px;vertical-align:1px}
 .b-high{background:#2a7a4b}.b-medium{background:#c98a14}.b-low{background:#b0561f}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
@@ -153,7 +155,7 @@ a{color:var(--ink2)}
       <input class="in" id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false">
       <label for="model">模型</label>
       <input class="in" id="model" placeholder="claude-sonnet-5-5" autocapitalize="off" spellcheck="false">
-      <div class="hint">Key 只存在這支手機的瀏覽器裡，辨識時只會把縮小後的照片直接送到 Anthropic。沒填 Key 也能用，魚種手動輸入。</div>
+      <div class="hint">Key 只存在這支手機的瀏覽器裡。辨識時會把縮小後的照片，連同拍攝地點名稱和附近魚種名單，直接送到 Anthropic。沒填 Key 也能用，魚種手動輸入。<br>有 GPS 的照片會把座標（約 100 公尺精度）送到 iNaturalist 查附近有人記錄過的魚種。</div>
       <button class="btn sm" style="margin-top:12px" id="saveKey">儲存設定</button>
     </div>
     <div class="set-sec">
@@ -207,6 +209,8 @@ const PRESET = [
   {zh:'粗首鱲',sci:'Zacco pachycephalus',hab:'淡水',alias:['溪哥','粗首馬口鱲']},
   {zh:'食蚊魚',sci:'Gambusia affinis',hab:'淡水',alias:['大肚魚','蚊魚']},
   {zh:'孔雀魚',sci:'Poecilia reticulata',hab:'淡水',alias:[]},
+  {zh:'曲腰魚',sci:'Culter alburnus / Chanodichthys erythropterus',hab:'淡水',alias:['曲腰','紅鰭鮊','翹嘴鮊','翹嘴','翹嘴紅鮊','總統魚']},
+  {zh:'奇力仔',sci:'Hemiculter leucisculus',hab:'淡水',alias:['奇力','似鱎']},
   {zh:'虱目魚',sci:'Chanos chanos',hab:'河口',alias:['麻虱目','國姓魚']},
   {zh:'烏魚',sci:'Mugil cephalus',hab:'河口',alias:['鯔','鯔魚','豆仔魚','正頭烏']},
   {zh:'鮻',sci:'Planiliza / Chelon spp.',hab:'河口',alias:['鮻魚','大鱗鮻','前鱗鮻','前鱗龜鮻','龜鮻']},
@@ -359,12 +363,56 @@ function getPosition(){
   });
 }
 
+/* ============ 附近魚種（iNaturalist 公開觀察紀錄）============ */
+const nearMem=new Map();
+function nearbyFish(lat,lng){
+  const k=lat.toFixed(2)+','+lng.toFixed(2);
+  if(!nearMem.has(k)){
+    const p=fetchNearby(lat,lng,k);
+    nearMem.set(k,p);
+    p.then(v=>{ if(!v) nearMem.delete(k); });
+  }
+  return nearMem.get(k);
+}
+async function fetchNearby(lat,lng,k){
+  try{ const c=JSON.parse(localStorage.getItem('fd_near_'+k)||'null'); if(c&&Date.now()-c.t<6048e5) return c.v; }catch{}
+  for(const r of [5,15,40]){
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),9000);
+    try{
+      const res=await fetch(`https://api.inaturalist.org/v1/observations/species_counts?taxon_id=47178&lat=${lat.toFixed(3)}&lng=${lng.toFixed(3)}&radius=${r}&per_page=40&locale=zh-TW&verifiable=true`,{signal:ctl.signal});
+      if(!res.ok) throw new Error(res.status);
+      const j=await res.json();
+      const list=(j.results||[]).map(x=>({zh:(x.taxon.preferred_common_name||'').replace(/\s*[\(（].*?[\)）]/g,'').trim(),sci:x.taxon.name,n:x.count}));
+      if(list.length>=8||r===40){
+        const v={radius:r,list};
+        try{localStorage.setItem('fd_near_'+k,JSON.stringify({t:Date.now(),v}));}catch{}
+        return v;
+      }
+    }catch(e){ console.warn('附近魚種查詢失敗',e); return null; }
+    finally{ clearTimeout(to); }
+  }
+  return null;
+}
+function distKm(a,b,c,d){const t=x=>x*Math.PI/180,R=6371,dl=t(c-a),dn=t(d-b);const h=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+function myFishHere(){
+  if(!D||D.lat==null) return [];
+  const m={};
+  for(const c of catches){
+    if(c.uid===D.uid||c.lat==null||!c.species||c.species===UNKNOWN) continue;
+    if(distKm(D.lat,D.lng,c.lat,c.lng)<=1) m[c.species]=(m[c.species]||0)+1;
+  }
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]);
+}
+
 /* ============ AI 辨識 ============ */
-const PROMPT=`這是一張在台灣拍攝的釣獲魚類照片。請辨識照片中主要那一條魚的種類。
-只回傳一個 JSON 物件，不要任何其他文字：
+const buildPrompt=(ctx)=>`這是一張在台灣拍攝的釣獲魚類照片。請辨識照片中主要那一條魚的種類。
+${ctx?'\n【地點線索】\n'+ctx+'這些名單只是參考，不要被限制：放流、外來種和名單沒列到的魚都可能出現；最後仍以照片上的外觀特徵為準。\n':''}
+【台灣淡水常見混淆】曲腰魚（翹嘴鮊、紅鰭鮊一類，嘴巴上翹、體側扁細長銀白、眼大、腹部有稜；請直接用「曲腰魚」當 zh）；虱目魚嘴小而端位、不上翹，頭呈錐形；鮻與烏魚吻鈍、有兩個分開的背鰭；奇力仔體型小、嘴也上翹。若有常見俗名，請寫在 note。
+只回傳一個 JSON 物件，不要任何其他文字：`;
+const PROMPT_TAIL=`
 {"zh":"台灣常用中文名","sci":"學名","confidence":"high|medium|low","alts":[{"zh":"","sci":""}],"note":"一句話說明辨識依據，或容易與哪種魚混淆"}
 規則：alts 最多 2 個相似候選；若看不出是魚，zh 填「無法辨識」；不確定時 confidence 要誠實填 low。`;
-async function identify(blob){
+async function identify(blob,ctx){
   const key=localStorage.getItem('fd_key');
   if(!key) throw new Error('NOKEY');
   const model=localStorage.getItem('fd_model')||'claude-sonnet-5-5';
@@ -374,7 +422,7 @@ async function identify(blob){
     r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model,max_tokens:600,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:PROMPT}]}]})
+      body:JSON.stringify({model,max_tokens:600,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:buildPrompt(ctx)+PROMPT_TAIL}]}]})
     });
   }catch(e){ throw new Error('無法連線，請檢查網路'); }
   if(!r.ok){
@@ -512,6 +560,7 @@ function openEdit(uid){
 
     <label>魚種</label>
     <input class="in" id="fSpecies" list="dlSpecies" placeholder="輸入或等 AI 辨識" value="${esc(D.species)}">
+    <div id="nearBox" class="near"></div>
     <div id="aiBox"></div>
     <button class="btn ghost sm" id="btnAI" style="margin-top:8px">🔍 AI 辨識這張照片</button>
 
@@ -537,6 +586,7 @@ function openEdit(uid){
   sh.scrollTop=0;
   updateHints();
   if(ex&&ex.aiConf) showAI({zh:ex.species,sci:ex.sci,confidence:ex.aiConf,alts:[],note:''},true);
+  if(D.lat!=null) loadNearby();
   sh.onclick=onEditClick;
   $('#fSpecies').oninput=()=>{D.species=$('#fSpecies').value;};
 }
@@ -546,6 +596,26 @@ function updateHints(){
   if(D.lat!=null){
     $('#geoHint').innerHTML=`<span class="ok">✓ 座標 ${D.lat.toFixed(5)}, ${D.lng.toFixed(5)}</span>　<a href="https://maps.apple.com/?ll=${D.lat},${D.lng}&q=${encodeURIComponent(D.placeName||'釣點')}" target="_blank" rel="noopener">在地圖開啟</a>`;
   }else $('#geoHint').textContent='沒有座標。可手動輸入地點，或按下方使用目前位置（要人在釣點）。';
+}
+async function loadNearby(){
+  const box=$('#nearBox'); const uid=D&&D.uid;
+  if(!box||!D) return null;
+  if(D.lat==null){ box.innerHTML=''; return null; }
+  const mine=myFishHere();
+  const chip=(label,val,sci,cls='')=>`<button class="${cls}" data-pick="${esc(val)}" data-sci="${esc(sci||'')}">${esc(label)}</button>`;
+  const mineHtml=mine.length?`<div class="hint">你在這裡釣過：</div><div class="alts">${mine.map(([n,c])=>chip(`${n} ×${c}`,n,'','mine')).join('')}</div>`:'';
+  box.innerHTML=mineHtml+'<div class="hint"><span class="spin"></span>查詢附近有人記錄過的魚…</div>';
+  const near=await nearbyFish(D.lat,D.lng);
+  if(!D||D.uid!==uid||!$('#nearBox')) return near;
+  D.near=near;
+  let nearHtml='';
+  if(near&&near.list.length){
+    nearHtml=`<div class="hint" style="margin-top:8px">附近 ${near.radius} 公里內有人記錄過（點一下可套用）：</div><div class="alts">${near.list.slice(0,14).map(x=>chip(x.zh||x.sci,x.zh||x.sci,x.sci)).join('')}</div>`;
+  }else if(!near){
+    nearHtml='<div class="hint">附近魚種查詢失敗（沒網路或服務忙碌），不影響其他功能。</div>';
+  }
+  $('#nearBox').innerHTML=mineHtml+nearHtml;
+  return near;
 }
 async function handleFile(file){
   const hint=$('#photoHint'); hint.innerHTML='<span class="spin"></span>處理照片中…';
@@ -571,7 +641,8 @@ async function handleFile(file){
     }
     updateHints();
     hint.innerHTML=msgs.join('　');
-    if(localStorage.getItem('fd_key') && !$('#fSpecies').value.trim()) runAI();
+    const nearP=loadNearby();
+    if(localStorage.getItem('fd_key') && !$('#fSpecies').value.trim()){ await nearP; runAI(); }
   }catch(e){ hint.innerHTML=`<span class="warn">${esc(e.message)}</span>`; }
 }
 async function runAI(){
@@ -581,7 +652,14 @@ async function runAI(){
   $('#aiBox').innerHTML='<div class="ai"><span class="spin"></span>AI 辨識中…</div>';
   try{
     const im=await loadImg(D.photo); const small=await resizeBlob(im,1024,.8);
-    const r=await identify(small);
+    const near=D.near||await loadNearby();
+    const mine=myFishHere();
+    let ctx='';
+    if(D.placeName) ctx+=`拍攝地點：${D.placeName}\n`;
+    if(mine.length) ctx+=`使用者過去在這個地點釣到過：${mine.map(([n,c])=>`${n}×${c}`).join('、')}\n`;
+    if(near&&near.list.length) ctx+=`iNaturalist 在附近 ${near.radius} 公里內有人記錄過的魚類（紀錄多的在前）：${near.list.slice(0,30).map(x=>x.zh?`${x.zh}(${x.sci})`:x.sci).join('、')}\n`;
+    D.usedCtx=!!ctx;
+    const r=await identify(small,ctx);
     showAI(r,false);
     if(r.zh && r.zh!=='無法辨識'){
       const p=canon(r.zh); const name=p?p.zh:r.zh;
@@ -597,19 +675,22 @@ function showAI(r,saved){
   $('#aiBox').innerHTML=`<div class="ai">${saved?'上次 AI 判斷':'AI 建議'}：<b>${esc(r.zh)}</b><span class="badge b-${r.confidence}">${CONF[r.confidence]}</span>
     ${r.sci?`<div style="color:var(--mute);font-size:12.5px">${esc(r.sci)}</div>`:''}
     ${r.note?`<div style="margin-top:4px">${esc(r.note)}</div>`:''}
-    ${alts?`<div class="hint" style="margin-top:6px">也可能是：</div><div class="alts">${alts}</div>`:''}</div>`;
+    ${alts?`<div class="hint" style="margin-top:6px">也可能是：</div><div class="alts">${alts}</div>`:''}
+    ${!saved&&D.usedCtx?'<div class="hint">已參考拍攝地點附近的魚類紀錄</div>':''}</div>`;
 }
 async function onEditClick(e){
   const t=e.target;
   if(t.closest('[data-close]')) return closeOv('ovEdit');
   if(t.closest('#photoBox')) return $('#fileInput').click();
   if(t.id==='btnAI') return runAI();
+  const pick=t.closest('[data-pick]');
+  if(pick){const n=pick.dataset.pick;const p=canon(n);const name=p?p.zh:n;$('#fSpecies').value=name;D.species=name;D.sci=p?p.sci:(pick.dataset.sci||'');return;}
   const alt=t.closest('[data-alt]');
   if(alt){const a=D.ai.alts[+alt.dataset.alt];const p=canon(a.zh);const n=p?p.zh:a.zh;$('#fSpecies').value=n;D.species=n;D.sci=p?p.sci:a.sci;return;}
   if(t.id==='btnGeo'){
     t.disabled=true; $('#geoHint').innerHTML='<span class="spin"></span>定位中…';
     try{
-      const p=await getPosition(); D.lat=p.lat; D.lng=p.lng; updateHints();
+      const p=await getPosition(); D.lat=p.lat; D.lng=p.lng; D.near=null; updateHints(); loadNearby();
       const pn=await reverseGeocode(p.lat,p.lng); if(pn){D.placeName=pn;$('#fPlace').value=pn;}
     }catch(err){ $('#geoHint').innerHTML=`<span class="warn">${esc(err.message)}</span>`; }
     t.disabled=false; return;
