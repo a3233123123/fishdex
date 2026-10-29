@@ -1,4 +1,4 @@
-const CACHE = 'fishdex-v4';
+const CACHE = 'fishdex-v5';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

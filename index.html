@@ -484,7 +484,7 @@ function getPosition(){
 
 /* ============ 水域（OpenStreetMap / Overpass）============ */
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
-async function overpass(q,ms=30000){
+async function overpass(q,ms=60000){
   let last;
   for(const h of OVERPASS){
     for(let i=0;i<2;i++){
@@ -523,8 +523,8 @@ function elRings(el){ if(el.geometry) return [el.geometry]; if(el.members) retur
 async function findWater(lat,lng){
   const key='fd_w_'+lat.toFixed(4)+','+lng.toFixed(4);
   const c=lsGet(key,null); if(c) return c;
-  const A=`(around:250,${lat},${lng})`;
-  const q=`[out:json][timeout:25];(way${A}[natural=water];relation${A}[natural=water];way${A}[landuse=reservoir];way${A}[waterway~"^(river|stream|canal|drain|ditch)$"];way(around:500,${lat},${lng})[harbour];node(around:500,${lat},${lng})[harbour];);out tags geom;`;
+  const d=0.003,A=`(${lat-d},${lng-d},${lat+d},${lng+d})`;
+  const q=`[out:json][timeout:50];(way${A}[natural=water];relation${A}[natural=water];way${A}[landuse=reservoir];way${A}[waterway~"^(river|stream|canal|drain|ditch)$"];way${A}[harbour];node${A}[harbour];);out tags geom${A};`;
   const j=await overpass(q);
   let best=null;
   for(const el of j.elements||[]){
@@ -962,9 +962,13 @@ async function locate(lat,lng){
   D.lat=lat;D.lng=lng;D.near=null; updateHints();
   const uid=D.uid;
   const pPlace=reverseGeocode(lat,lng).then(pn=>{ if(D&&D.uid===uid&&pn){D.place=pn;updateHints();} });
-  const pWater=findWater(lat,lng).then(w=>{ if(!D||D.uid!==uid) return w; if(w&&w.name&&!$('#fWater').value.trim()){ D.water=w; $('#fWater').value=w.name; } else if(w&&D.water&&D.water.name===w.name) D.water=w; updateHints(); return w; })
-    .catch(e=>{ console.warn('水域',e); if(D&&D.uid===uid&&!$('#fWater').value.trim()) $('#geoHint').insertAdjacentHTML('beforeend','<br><span class="warn">水域查詢忙碌中，可自行輸入名稱</span>'); return null; });
-  $('#geoHint').insertAdjacentHTML('beforeend','<br><span class="spin"></span>查詢水域中…');
+  const pWater=findWater(lat,lng).then(async w=>{
+      if(!D||D.uid!==uid){ // 表單已關閉：若已存檔且沒填水域，補寫進去
+        const rec=w&&w.name?catches.find(c=>c.uid===uid):null;
+        if(rec&&!rec.water){ rec.water=w; await dbPut('catches',rec); await reload(); }
+        return w; } if(w&&w.name&&!$('#fWater').value.trim()){ D.water=w; $('#fWater').value=w.name; } else if(w&&D.water&&D.water.name===w.name) D.water=w; updateHints(); return w; })
+    .catch(e=>{ console.warn('水域',e); if(D&&D.uid===uid&&!$('#fWater').value.trim()) $('#geoHint').insertAdjacentHTML('beforeend','<br><span class="warn">OpenStreetMap 忙碌中，查不到水域，請自行輸入名稱</span>'); return null; });
+  $('#geoHint').insertAdjacentHTML('beforeend','<br><span class="spin"></span>查詢水域中（OpenStreetMap，可能要 10~60 秒，可先存檔）…');
   refreshEnv();
   const pNear=loadNearby();
   return {pPlace,pWater,pNear};
@@ -1213,8 +1217,9 @@ $('#mapWaters').onclick=async()=>{
   const b=mapObj.getBounds(),bb=`${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
   const btn=$('#mapWaters'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>查詢水域中…';
   try{
-    const q=`[out:json][timeout:40];(way[natural=water](${bb});relation[natural=water](${bb});way[landuse=reservoir](${bb});way[waterway~"^(river|stream|canal|drain|ditch)$"](${bb}););out tags geom;`;
-    const j=await overpass(q,45000); waterLayer.clearLayers(); let n=0;
+    const q=`[out:json][timeout:55];(way[natural=water](${bb});relation[natural=water](${bb});way[landuse=reservoir](${bb});way[waterway~"^(river|stream|canal|drain|ditch)$"](${bb}););out tags geom(${bb});`;
+    toast('OpenStreetMap 查詢較慢，約需 10~60 秒',3000);
+    const j=await overpass(q,65000); waterLayer.clearLayers(); let n=0;
     const C={lake:'#2b7bb9',river:'#1f5fa0',canal:'#17a0a0'};
     for(const el of j.elements||[]){
       const t=el.tags||{},kind=wKind(t),name=t.name||('無名'+wType(t));
@@ -1278,7 +1283,11 @@ async function updateStorageInfo(){
   try{ db=await openDB(); }catch(e){ document.body.innerHTML='<div class="empty">無法開啟本機資料庫。若使用無痕模式請改用一般模式。</div>'; return; }
   if(navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   await reload();
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker' in navigator){
+    const had=!!navigator.serviceWorker.controller; let done=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(had&&!done){ done=true; location.reload(); } }); // 有新版就自動重新載入
+    navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});
+  }
 })();
 </script>
 </body>
