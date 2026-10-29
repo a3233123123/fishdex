@@ -412,6 +412,23 @@ ${ctx?'\n【地點線索】\n'+ctx+'這些名單只是參考，不要被限制�
 const PROMPT_TAIL=`
 {"zh":"台灣常用中文名","sci":"學名","confidence":"high|medium|low","alts":[{"zh":"","sci":""}],"note":"一句話說明辨識依據，或容易與哪種魚混淆"}
 規則：alts 最多 2 個相似候選；若看不出是魚，zh 填「無法辨識」；不確定時 confidence 要誠實填 low。`;
+function extractFish(text){
+  // 逐一找出括號平衡的 {...}，挑第一個能解析且含 zh 的；都失敗再用正則硬撈
+  for(let i=0;i<text.length;i++){
+    if(text[i]!=='{') continue;
+    let d=0,str=false,esc=false;
+    for(let j=i;j<text.length;j++){
+      const ch=text[j];
+      if(str){ if(esc)esc=false; else if(ch==='\\')esc=true; else if(ch==='"')str=false; continue; }
+      if(ch==='"')str=true;
+      else if(ch==='{')d++;
+      else if(ch==='}'){ d--; if(d===0){ try{ const o=JSON.parse(text.slice(i,j+1)); if(o&&o.zh) return o; }catch{} break; } }
+    }
+  }
+  const g=k=>{const m=text.match(new RegExp('"'+k+'"\\s*:\\s*"([^"]*)"'));return m?m[1]:'';};
+  if(g('zh')) return {zh:g('zh'),sci:g('sci'),confidence:g('confidence'),alts:[],note:g('note')};
+  return null;
+}
 async function identify(blob,ctx){
   const key=localStorage.getItem('fd_key');
   if(!key) throw new Error('NOKEY');
@@ -422,7 +439,7 @@ async function identify(blob,ctx){
     r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model,max_tokens:600,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:buildPrompt(ctx)+PROMPT_TAIL}]}]})
+      body:JSON.stringify({model,max_tokens:1200,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:buildPrompt(ctx)+PROMPT_TAIL}]}]})
     });
   }catch(e){ throw new Error('無法連線，請檢查網路'); }
   if(!r.ok){
@@ -433,9 +450,8 @@ async function identify(blob,ctx){
   }
   const j=await r.json();
   const text=(j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
-  const m=text.match(/\{[\s\S]*\}/);
-  if(!m) throw new Error('AI 回傳格式無法解析');
-  const o=JSON.parse(m[0]);
+  const o=extractFish(text);
+  if(!o) throw new Error('AI 回傳格式無法解析，請再按一次辨識');
   return {zh:String(o.zh||'').trim(),sci:String(o.sci||'').trim(),confidence:['high','medium','low'].includes(o.confidence)?o.confidence:'low',alts:Array.isArray(o.alts)?o.alts.slice(0,2).filter(a=>a&&a.zh):[],note:String(o.note||'')};
 }
 const CONF={high:'高信心',medium:'中信心',low:'低信心'};
