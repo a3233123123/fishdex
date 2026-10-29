@@ -519,7 +519,8 @@ function segDistM(lat,lng,a,b){
   const dx=bx-ax,dy=by-ay,L=dx*dx+dy*dy; let t=L?-(ax*dx+ay*dy)/L:0; t=Math.max(0,Math.min(1,t));
   return Math.hypot(ax+t*dx,ay+t*dy);
 }
-function elRings(el){ if(el.geometry) return [el.geometry]; if(el.members) return el.members.filter(m=>m.geometry).map(m=>m.geometry); return []; }
+function splitNull(g){ const out=[]; let cur=[]; for(const p of g){ if(p&&p.lat!=null) cur.push(p); else { if(cur.length) out.push(cur); cur=[]; } } if(cur.length) out.push(cur); return out; }
+function elRings(el){ if(el.geometry) return splitNull(el.geometry); if(el.members) return el.members.flatMap(m=>m.geometry?splitNull(m.geometry):[]); return []; }
 async function findWater(lat,lng){
   const key='fd_w_'+lat.toFixed(4)+','+lng.toFixed(4);
   const c=lsGet(key,null); if(c) return c;
@@ -1226,7 +1227,8 @@ $('#mapWaters').onclick=async()=>{
       const rings=elRings(el).map(r=>r.map(p=>[p.lat,p.lon])); if(!rings.length) continue;
       const c=[0,0],r0=rings[0][Math.floor(rings[0].length/2)]; c[0]=r0[0]; c[1]=r0[1];
       const pop=`<b>${esc(name)}</b> <span class="tag">${esc(wType(t))}</span><br><a href="#" data-wfish data-name="${esc(name)}" data-lat="${c[0]}" data-lng="${c[1]}">這裡有什麼魚？</a><br><span style="font-size:12px;color:#8a8473">能不能釣請以現場告示為準</span>`;
-      const lay=kind==='lake'&&!t.waterway?L.polygon(rings,{color:C.lake,weight:2,fillOpacity:.35}):L.polyline(rings,{color:C[kind],weight:kind==='river'?5:3,opacity:.85});
+      const closed=rings.every(r=>r.length>3&&r[0][0]===r[r.length-1][0]&&r[0][1]===r[r.length-1][1]);
+      const lay=kind==='lake'&&closed?L.polygon(rings,{color:C.lake,weight:2,fillOpacity:.35}):L.polyline(rings,{color:C[kind],weight:kind==='river'?5:3,opacity:.85});
       lay.bindPopup(pop).addTo(waterLayer); n++;
     }
     toast(n?`找到 ${n} 個水域，點一下看名稱`:'這一帶沒有標記的水域',2600);
