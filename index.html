@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f4c5c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="魚圖鑑">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>魚圖鑑</title>
+<style>
+:root{
+  --paper:#efe6cf; --card:#fffdf7; --ink:#0f4c5c; --ink2:#2f6b7a; --red:#c8452d;
+  --text:#2b2a26; --mute:#8a8473; --line:#d9cdae;
+  --serif:"Noto Serif TC","Songti TC","PMingLiU",ui-serif,Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--text);font-family:var(--sans);font-size:16px}
+body{min-height:100dvh;padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+
+/* header */
+header{background:var(--ink);color:#fdf6e3;padding:calc(14px + env(safe-area-inset-top)) 18px 18px;position:sticky;top:0;z-index:5}
+header h1{margin:0;font-family:var(--serif);font-size:22px;letter-spacing:.12em;font-weight:700}
+header h1 small{font-size:11px;letter-spacing:.2em;opacity:.65;margin-left:8px;font-weight:400}
+.stats{display:flex;gap:22px;margin-top:10px}
+.stats div{font-size:11px;letter-spacing:.08em;opacity:.8}
+.stats b{display:block;font-family:var(--serif);font-size:22px;letter-spacing:0;opacity:1;color:#fff}
+
+main{padding:16px 14px}
+.view{display:none}.view.on{display:block}
+
+.chips{display:flex;gap:8px;margin:0 2px 14px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;padding:5px 14px;font-size:14px}
+.chip.on{background:var(--ink);color:#fff}
+.banner{background:#fbe9d4;border:1px solid #e5b98a;border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:14px;line-height:1.5}
+
+/* dex grid + stamps */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 14px;padding:4px}
+.stamp{position:relative;background:var(--card);padding:8px 8px 6px;box-shadow:0 1px 3px rgba(60,40,0,.25);text-align:center;cursor:pointer;border:0;width:100%}
+.stamp::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+   radial-gradient(circle at 5px 0,var(--paper) 3.2px,transparent 3.7px) 0 0/10px 10px repeat-x,
+   radial-gradient(circle at 5px 10px,var(--paper) 3.2px,transparent 3.7px) 0 100%/10px 10px repeat-x,
+   radial-gradient(circle at 0 5px,var(--paper) 3.2px,transparent 3.7px) 0 0/10px 10px repeat-y,
+   radial-gradient(circle at 10px 5px,var(--paper) 3.2px,transparent 3.7px) 100% 0/10px 10px repeat-y}
+.stamp .pic{aspect-ratio:1;background:#e6dcc0;overflow:hidden;position:relative}
+.stamp .pic img{width:100%;height:100%;object-fit:cover;display:block}
+.stamp .nm{font-family:var(--serif);font-weight:700;font-size:14px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stamp .sub{font-size:10.5px;color:var(--mute);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stamp .cnt{position:absolute;top:2px;right:2px;z-index:2;background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:99px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.stamp .pm{position:absolute;right:2px;bottom:2px;z-index:2;width:44px;height:44px;border:1.8px solid rgba(200,69,45,.75);border-radius:50%;color:rgba(200,69,45,.85);font-size:9px;line-height:1.15;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(-14deg);background:rgba(255,253,247,.55);font-weight:700;letter-spacing:.02em}
+.stamp.locked{background:transparent;box-shadow:none;cursor:default}
+.stamp.locked::after{display:none}
+.stamp.locked .pic{background:transparent;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:34px;color:var(--line)}
+.stamp.locked .nm{color:#b3a98c;font-weight:500}
+.stamp.locked .sub{color:#c4bb9f}
+.empty{text-align:center;color:var(--mute);padding:40px 10px;line-height:1.7}
+
+/* log list */
+.search{width:100%;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);margin-bottom:12px}
+.row{display:flex;gap:12px;background:var(--card);border-radius:12px;padding:10px;margin-bottom:10px;box-shadow:0 1px 2px rgba(60,40,0,.12);cursor:pointer;width:100%;text-align:left;border:0}
+.row .th{width:72px;height:72px;border-radius:8px;background:#e6dcc0;flex:none;overflow:hidden}
+.row .th img{width:100%;height:100%;object-fit:cover;display:block}
+.row .tx{min-width:0;flex:1}
+.row .t1{font-family:var(--serif);font-weight:700;font-size:16px}
+.row .t1 i{font-style:normal;font-family:var(--sans);font-weight:400;color:var(--mute);font-size:12px;margin-left:6px}
+.row .t2{font-size:13px;color:var(--mute);margin-top:3px;line-height:1.45;overflow:hidden;text-overflow:ellipsis}
+
+/* nav */
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:flex-end;padding:6px 10px calc(8px + env(safe-area-inset-bottom));z-index:6}
+nav button{background:none;border:0;flex:1;padding:6px 0;color:var(--mute);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px}
+nav button.on{color:var(--ink);font-weight:700}
+nav button svg{width:24px;height:24px}
+nav .fab{flex:none;width:62px;height:62px;margin-top:-30px;border-radius:50%;background:var(--red);color:#fff;border:4px solid var(--paper);box-shadow:0 3px 8px rgba(0,0,0,.3);font-size:34px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
+
+/* sheet */
+.overlay{position:fixed;inset:0;background:rgba(15,40,48,.55);z-index:20;display:none;align-items:flex-end;justify-content:center}
+.overlay.on{display:flex}
+.sheet{background:var(--paper);width:100%;max-width:560px;max-height:94dvh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(24px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.sheet h2{font-family:var(--serif);margin:0 0 12px;font-size:20px;display:flex;justify-content:space-between;align-items:center}
+.x{background:none;border:0;font-size:26px;color:var(--mute);line-height:1;padding:0 4px}
+.photo{width:100%;aspect-ratio:4/3;border-radius:14px;background:#e6dcc0;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;color:var(--mute);overflow:hidden;position:relative;text-align:center;padding:10px}
+.photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#222}
+.photo.has{border:0;padding:0}
+label{display:block;font-size:13px;color:var(--ink2);margin:14px 0 5px;font-weight:600;letter-spacing:.04em}
+.in{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);-webkit-appearance:none;appearance:none;min-height:46px}
+textarea.in{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:12.5px;color:var(--mute);margin-top:5px;line-height:1.5}
+.ok{color:#2a7a4b}.warn{color:#b0561f}
+.btn{border:0;border-radius:12px;padding:13px 16px;font-weight:700;background:var(--ink);color:#fff;width:100%;margin-top:16px;font-size:16px}
+.btn.red{background:var(--red)}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+.btn.danger{background:transparent;color:var(--red);border:1.5px solid var(--red)}
+.btn.sm{width:auto;margin:0;padding:8px 12px;font-size:14px;font-weight:600}
+.btn:disabled{opacity:.5}
+.ai{background:var(--card);border-radius:12px;padding:10px 12px;margin-top:8px;border-left:4px solid var(--ink);font-size:14px;line-height:1.55}
+.ai .alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.ai .alts button{border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;padding:3px 10px;font-size:13px}
+.badge{display:inline-block;font-size:11px;border-radius:99px;padding:1px 8px;color:#fff;margin-left:4px;vertical-align:1px}
+.b-high{background:#2a7a4b}.b-medium{background:#c98a14}.b-low{background:#b0561f}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#222;color:#fff;padding:10px 18px;border-radius:99px;font-size:14px;z-index:40;opacity:0;transition:opacity .25s;pointer-events:none;max-width:86vw;text-align:center}
+.toast.on{opacity:.95}
+.set-sec{background:var(--card);border-radius:14px;padding:4px 14px 16px;margin-bottom:14px}
+.set-sec h3{font-family:var(--serif);margin:14px 0 0;font-size:16px;color:var(--ink)}
+a{color:var(--ink2)}
+.det-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.det-row:last-child{border:0}
+.det-row .th{width:64px;height:64px;border-radius:8px;overflow:hidden;background:#e6dcc0;flex:none}
+.det-row .th img{width:100%;height:100%;object-fit:cover}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>魚圖鑑<small>FISHDEX</small></h1>
+  <div class="stats">
+    <div><b id="stSpecies">0</b>已收集種類</div>
+    <div><b id="stCatch">0</b>總尾數</div>
+    <div><b id="stPlace">0</b>釣點數</div>
+  </div>
+</header>
+
+<main>
+  <section id="v-dex" class="view on">
+    <div id="backupBanner"></div>
+    <div class="chips">
+      <button class="chip on" data-f="all">全部</button>
+      <button class="chip" data-f="got">已收集</button>
+      <button class="chip" data-f="todo">未收集</button>
+    </div>
+    <div class="grid" id="dexGrid"></div>
+  </section>
+
+  <section id="v-log" class="view">
+    <input class="search" id="q" placeholder="搜尋魚種、地點、餌…" type="search">
+    <div id="logList"></div>
+  </section>
+
+  <section id="v-set" class="view">
+    <div class="set-sec">
+      <h3>AI 辨識</h3>
+      <label for="apiKey">Anthropic API Key</label>
+      <input class="in" id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="model">模型</label>
+      <input class="in" id="model" placeholder="claude-sonnet-5-5" autocapitalize="off" spellcheck="false">
+      <div class="hint">Key 只存在這支手機的瀏覽器裡，辨識時只會把縮小後的照片直接送到 Anthropic。沒填 Key 也能用，魚種手動輸入。</div>
+      <button class="btn sm" style="margin-top:12px" id="saveKey">儲存設定</button>
+    </div>
+    <div class="set-sec">
+      <h3>備份</h3>
+      <div class="hint" id="backupInfo"></div>
+      <button class="btn ghost" id="btnExport">匯出備份（含照片）</button>
+      <button class="btn ghost" id="btnImport">匯入備份</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+    <div class="set-sec">
+      <h3>儲存空間</h3>
+      <div class="hint" id="storeInfo"></div>
+    </div>
+    <div class="set-sec">
+      <h3>危險區</h3>
+      <button class="btn danger" id="btnWipe">清除全部資料</button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button data-v="dex" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/></svg>圖鑑</button>
+  <button data-v="log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>紀錄</button>
+  <button class="fab" id="fab" aria-label="新增釣獲">+</button>
+  <button data-v="set"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/></svg>設定</button>
+</nav>
+
+<div class="overlay" id="ovEdit"><div class="sheet" id="sheetEdit"></div></div>
+<div class="overlay" id="ovDet"><div class="sheet" id="sheetDet"></div></div>
+<div class="toast" id="toast"></div>
+<input type="file" id="fileInput" accept="image/*" hidden>
+<datalist id="dlSpecies"></datalist>
+<datalist id="dlBait"></datalist>
+
+<script>
+'use strict';
+/* ============ 常見魚種（台灣釣獲）============ */
+const PRESET = [
+  {zh:'吳郭魚',sci:'Oreochromis spp.',hab:'淡水',alias:['台灣鯛','福壽魚','吳郭','口孵魚','非洲鯽']},
+  {zh:'大口黑鱸',sci:'Micropterus salmoides',hab:'淡水',alias:['黑鱸','加州鱸','大嘴鱸']},
+  {zh:'鯽魚',sci:'Carassius auratus',hab:'淡水',alias:['鯽仔']},
+  {zh:'鯉魚',sci:'Cyprinus carpio',hab:'淡水',alias:['錦鯉']},
+  {zh:'草魚',sci:'Ctenopharyngodon idella',hab:'淡水',alias:['鯇魚']},
+  {zh:'鰱魚',sci:'Hypophthalmichthys molitrix',hab:'淡水',alias:['白鰱']},
+  {zh:'鱅魚',sci:'Hypophthalmichthys nobilis',hab:'淡水',alias:['大頭魚','花鰱']},
+  {zh:'鯰魚',sci:'Silurus asotus',hab:'淡水',alias:['土鯰']},
+  {zh:'土虱',sci:'Clarias fuscus',hab:'淡水',alias:['塘虱','胡子鯰']},
+  {zh:'鱧魚',sci:'Channa spp.',hab:'淡水',alias:['魚虎','線鱧','斑鱧','泰國鱧']},
+  {zh:'琵琶鼠魚',sci:'Pterygoplichthys spp.',hab:'淡水',alias:['清道夫','吸盤魚']},
+  {zh:'日本鰻鱺',sci:'Anguilla japonica',hab:'淡水',alias:['鰻魚','鰻']},
+  {zh:'粗首鱲',sci:'Zacco pachycephalus',hab:'淡水',alias:['溪哥','粗首馬口鱲']},
+  {zh:'食蚊魚',sci:'Gambusia affinis',hab:'淡水',alias:['大肚魚','蚊魚']},
+  {zh:'孔雀魚',sci:'Poecilia reticulata',hab:'淡水',alias:[]},
+  {zh:'虱目魚',sci:'Chanos chanos',hab:'河口',alias:['麻虱目','國姓魚']},
+  {zh:'烏魚',sci:'Mugil cephalus',hab:'河口',alias:['鯔','鯔魚','豆仔魚','正頭烏']},
+  {zh:'鮻',sci:'Planiliza / Chelon spp.',hab:'河口',alias:['鮻魚','大鱗鮻','前鱗鮻','前鱗龜鮻','龜鮻']},
+  {zh:'尖吻鱸',sci:'Lates calcarifer',hab:'河口',alias:['金目鱸','盲槽']},
+  {zh:'黑鯛',sci:'Acanthopagrus schlegelii',hab:'海水',alias:['烏鯛','黑格']},
+  {zh:'黃鰭鯛',sci:'Acanthopagrus latus',hab:'海水',alias:['黃鰭棘鯛','黃鯛']},
+  {zh:'嘉鱲',sci:'Pagrus major',hab:'海水',alias:['真鯛','嘉臘']},
+  {zh:'銀紋笛鯛',sci:'Lutjanus argentimaculatus',hab:'海水',alias:['笛鯛']},
+  {zh:'花身鯻',sci:'Terapon jarbua',hab:'海水',alias:['雞魚']},
+  {zh:'四指馬鮁',sci:'Eleutheronema tetradactylum',hab:'海水',alias:['午仔魚','午魚','馬友']},
+  {zh:'白帶魚',sci:'Trichiurus lepturus',hab:'海水',alias:['刀魚']},
+  {zh:'鯖魚',sci:'Scomber japonicus',hab:'海水',alias:['花飛','青花魚']},
+  {zh:'竹筴魚',sci:'Trachurus japonicus',hab:'海水',alias:['巴攏']},
+  {zh:'浪人鰺',sci:'Caranx ignobilis',hab:'海水',alias:['GT']},
+  {zh:'六帶鰺',sci:'Caranx sexfasciatus',hab:'海水',alias:[]},
+  {zh:'沙鮻',sci:'Sillago spp.',hab:'海水',alias:['沙腸','日本沙鮻']},
+  {zh:'石斑魚',sci:'Epinephelus spp.',hab:'海水',alias:['石斑']},
+  {zh:'河魨',sci:'Takifugu spp.',hab:'海水',alias:['河豚','魨']},
+  {zh:'鬼頭刀',sci:'Coryphaena hippurus',hab:'海水',alias:['鯕鰍','鬼頭刀魚']}
+];
+const UNKNOWN = '未辨識';
+
+function canon(name){
+  const n=(name||'').replace(/\s+/g,'');
+  if(!n) return null;
+  for(const p of PRESET){ if(n===p.zh || p.alias.includes(n)) return p; }
+  for(const p of PRESET){ if(n.includes(p.zh) || p.alias.some(a=>a.length>=2 && n.includes(a))) return p; }
+  return null;
+}
+
+/* ============ IndexedDB ============ */
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open('fishdex',1);
+    r.onupgradeneeded=()=>{ r.result.createObjectStore('catches',{keyPath:'uid'}); };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error);
+  });
+}
+const tx=(mode)=>db.transaction('catches',mode).objectStore('catches');
+const reqP=(r)=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+const dbAll=()=>reqP(tx('readonly').getAll());
+const dbPut=(rec)=>reqP(tx('readwrite').put(rec));
+const dbDel=(uid)=>reqP(tx('readwrite').delete(uid));
+const dbClear=()=>reqP(tx('readwrite').clear());
+
+/* ============ 工具 ============ */
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>[...el.querySelectorAll(s)];
+const esc=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg,ms=2200){const t=$('#toast');t.textContent=msg;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),ms);}
+const pad=(n)=>String(n).padStart(2,'0');
+function nowLocal(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;}
+function fmtDate(s){ if(!s) return ''; const [d,t]=s.split('T'); return d.replace(/-/g,'/')+(t?' '+t.slice(0,5):''); }
+const urlCache=new Map();
+function blobUrl(uid,key,blob){ if(!blob) return ''; const k=uid+':'+key; if(!urlCache.has(k)) urlCache.set(k,URL.createObjectURL(blob)); return urlCache.get(k); }
+function dropUrls(uid){ for(const k of [...urlCache.keys()]) if(k.startsWith(uid+':')){URL.revokeObjectURL(urlCache.get(k));urlCache.delete(k);} }
+const uuid=()=>crypto.randomUUID ? crypto.randomUUID() : 'u'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+
+/* ============ EXIF（JPEG）============ */
+async function readExif(file){
+  const out={time:null,lat:null,lng:null};
+  try{
+    const buf=await file.slice(0,512*1024).arrayBuffer();
+    const v=new DataView(buf);
+    if(v.byteLength<4||v.getUint16(0)!==0xFFD8) return out;
+    let off=2;
+    while(off+4<v.byteLength){
+      const marker=v.getUint16(off);
+      if(marker===0xFFDA||(marker&0xFF00)!==0xFF00) break;
+      const len=v.getUint16(off+2);
+      if(marker===0xFFE1 && v.getUint32(off+4)===0x45786966){
+        return parseTiff(v,off+10,out);
+      }
+      off+=2+len;
+    }
+  }catch(e){ console.warn('EXIF 解析失敗',e); }
+  return out;
+}
+function parseTiff(v,base,out){
+  const le=v.getUint16(base)===0x4949;
+  const u16=o=>v.getUint16(o,le), u32=o=>v.getUint32(o,le);
+  const SZ={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
+  function readIFD(off){
+    const r={}; const n=u16(base+off);
+    for(let i=0;i<n;i++){
+      const e=base+off+2+i*12; if(e+12>v.byteLength) break;
+      const tag=u16(e),type=u16(e+2),cnt=u32(e+4);
+      const size=(SZ[type]||1)*cnt;
+      const vo=size<=4?e+8:base+u32(e+8);
+      if(vo+size>v.byteLength) continue;
+      let val;
+      if(type===2){let s='';for(let k=0;k<cnt;k++){const c=v.getUint8(vo+k);if(!c)break;s+=String.fromCharCode(c);}val=s;}
+      else if(type===3){val=[];for(let k=0;k<cnt;k++)val.push(u16(vo+k*2));}
+      else if(type===4){val=[];for(let k=0;k<cnt;k++)val.push(u32(vo+k*4));}
+      else if(type===5){val=[];for(let k=0;k<cnt;k++){const d=u32(vo+k*8+4);val.push(d?u32(vo+k*8)/d:0);}}
+      else continue;
+      r[tag]=val;
+    }
+    return r;
+  }
+  const ifd0=readIFD(u32(base+4));
+  const exif=ifd0[0x8769]?readIFD(ifd0[0x8769][0]):{};
+  const gps=ifd0[0x8825]?readIFD(ifd0[0x8825][0]):{};
+  const ds=exif[0x9003]||exif[0x9004]||ifd0[0x0132];
+  const m=typeof ds==='string' && ds.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(m && m[1]!=='0000') out.time=`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}`;
+  const dms=(a,ref)=>{ if(!a||a.length<3) return null; let d=a[0]+a[1]/60+a[2]/3600; if(ref==='S'||ref==='W') d=-d; return d; };
+  const lat=dms(gps[2],gps[1]), lng=dms(gps[4],gps[3]);
+  if(lat!=null&&lng!=null&&!(lat===0&&lng===0)&&Math.abs(lat)<=90&&Math.abs(lng)<=180){ out.lat=lat; out.lng=lng; }
+  return out;
+}
+
+/* ============ 圖片處理 ============ */
+function loadImg(file){
+  return new Promise((res,rej)=>{
+    const u=URL.createObjectURL(file); const im=new Image();
+    im.onload=()=>{URL.revokeObjectURL(u);res(im);};
+    im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('無法讀取這張圖片'));};
+    im.src=u;
+  });
+}
+function resizeBlob(im,max,q){
+  const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));
+  const w=Math.round(im.naturalWidth*s),h=Math.round(im.naturalHeight*s);
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  c.getContext('2d').drawImage(im,0,0,w,h);
+  return new Promise(r=>c.toBlob(r,'image/jpeg',q));
+}
+const blobToB64=(b)=>new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(String(f.result).split(',')[1]);f.onerror=rej;f.readAsDataURL(b);});
+const blobToDataUrl=(b)=>new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b);});
+const dataUrlToBlob=async(u)=>(await fetch(u)).blob();
+
+/* ============ 反查地名 ============ */
+async function reverseGeocode(lat,lng){
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&accept-language=zh-TW`);
+    if(!r.ok) throw new Error(r.status);
+    const j=await r.json(); const a=j.address||{};
+    const parts=[a.city||a.county||a.state, a.city_district||a.suburb||a.town||a.village||a.district, j.name||a.leisure||a.park||a.road];
+    const seen=new Set(); const s=parts.filter(x=>x&&!seen.has(x)&&seen.add(x)).join(' ');
+    return s||j.display_name||null;
+  }catch(e){ console.warn('地名反查失敗',e); return null; }
+}
+function getPosition(){
+  return new Promise((res,rej)=>{
+    if(!navigator.geolocation) return rej(new Error('此瀏覽器不支援定位'));
+    navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude}),e=>rej(new Error(e.code===1?'沒有定位權限，請到 iPhone 設定允許':'定位失敗')),{enableHighAccuracy:true,timeout:15000});
+  });
+}
+
+/* ============ AI 辨識 ============ */
+const PROMPT=`這是一張在台灣拍攝的釣獲魚類照片。請辨識照片中主要那一條魚的種類。
+只回傳一個 JSON 物件，不要任何其他文字：
+{"zh":"台灣常用中文名","sci":"學名","confidence":"high|medium|low","alts":[{"zh":"","sci":""}],"note":"一句話說明辨識依據，或容易與哪種魚混淆"}
+規則：alts 最多 2 個相似候選；若看不出是魚，zh 填「無法辨識」；不確定時 confidence 要誠實填 low。`;
+async function identify(blob){
+  const key=localStorage.getItem('fd_key');
+  if(!key) throw new Error('NOKEY');
+  const model=localStorage.getItem('fd_model')||'claude-sonnet-5-5';
+  const data=await blobToB64(blob);
+  let r;
+  try{
+    r=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model,max_tokens:600,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:PROMPT}]}]})
+    });
+  }catch(e){ throw new Error('無法連線，請檢查網路'); }
+  if(!r.ok){
+    let m=''; try{ m=(await r.json()).error?.message||''; }catch{}
+    if(r.status===401) throw new Error('API Key 無效，請到設定檢查');
+    if(r.status===429) throw new Error('請求太頻繁或額度不足');
+    throw new Error(`辨識失敗（${r.status}）${m?'：'+m:''}`);
+  }
+  const j=await r.json();
+  const text=(j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+  const m=text.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error('AI 回傳格式無法解析');
+  const o=JSON.parse(m[0]);
+  return {zh:String(o.zh||'').trim(),sci:String(o.sci||'').trim(),confidence:['high','medium','low'].includes(o.confidence)?o.confidence:'low',alts:Array.isArray(o.alts)?o.alts.slice(0,2).filter(a=>a&&a.zh):[],note:String(o.note||'')};
+}
+const CONF={high:'高信心',medium:'中信心',low:'低信心'};
+
+/* ============ 狀態 ============ */
+let catches=[];
+let filter='all';
+async function reload(){ catches=(await dbAll()).sort((a,b)=>(b.takenAt||'').localeCompare(a.takenAt||'')); render(); }
+
+function speciesList(){
+  const map=new Map();
+  PRESET.forEach(p=>map.set(p.zh,{zh:p.zh,sci:p.sci,hab:p.hab,preset:true,list:[]}));
+  for(const c of catches){
+    if(!c.species||c.species===UNKNOWN) continue;
+    if(!map.has(c.species)) map.set(c.species,{zh:c.species,sci:c.sci||'',hab:'自訂',preset:false,list:[]});
+    map.get(c.species).list.push(c);
+  }
+  for(const s of map.values()) s.list.sort((a,b)=>(a.takenAt||'').localeCompare(b.takenAt||''));
+  return [...map.values()];
+}
+
+/* ============ 繪製 ============ */
+function render(){ renderStats(); renderDex(); renderLog(); renderLists(); renderBackup(); }
+function renderStats(){
+  const sp=speciesList().filter(s=>s.list.length);
+  $('#stSpecies').textContent=sp.length;
+  $('#stCatch').textContent=catches.length;
+  const places=new Set(catches.filter(c=>c.placeName||c.lat!=null).map(c=>c.lat!=null?c.lat.toFixed(3)+','+c.lng.toFixed(3):c.placeName));
+  $('#stPlace').textContent=places.size;
+}
+function renderDex(){
+  let sp=speciesList();
+  const got=sp.filter(s=>s.list.length).sort((a,b)=>a.list[0].takenAt.localeCompare(b.list[0].takenAt));
+  const todo=sp.filter(s=>!s.list.length);
+  sp=filter==='got'?got:filter==='todo'?todo:[...got,...todo];
+  const g=$('#dexGrid');
+  if(!sp.length){ g.innerHTML=`<div class="empty" style="grid-column:1/-1">還沒有收集到任何魚<br>按下方 + 新增第一張郵票</div>`; return; }
+  g.innerHTML=sp.map(s=>{
+    if(!s.list.length) return `<div class="stamp locked"><div class="pic">?</div><div class="nm">${esc(s.zh)}</div><div class="sub">${esc(s.hab)}</div></div>`;
+    const first=s.list[0], pic=s.list.find(c=>c.thumb)||first;
+    const d=(first.takenAt||'').slice(2,10).split('-');
+    return `<button class="stamp" data-sp="${esc(s.zh)}">
+      <div class="pic">${pic.thumb?`<img loading="lazy" src="${blobUrl(pic.uid,'t',pic.thumb)}" alt="">`:''}
+        <span class="pm"><span>${d[0]||''}</span><span>${d[1]||''}.${d[2]||''}</span></span></div>
+      ${s.list.length>1?`<span class="cnt">×${s.list.length}</span>`:''}
+      <div class="nm">${esc(s.zh)}</div><div class="sub">${esc(s.sci||s.hab)}</div></button>`;
+  }).join('');
+}
+function renderLog(){
+  const q=$('#q').value.trim().toLowerCase();
+  const list=catches.filter(c=>!q||[c.species,c.sci,c.placeName,c.bait,c.note].some(x=>(x||'').toLowerCase().includes(q)));
+  $('#logList').innerHTML=list.length?list.map(c=>`
+    <button class="row" data-uid="${c.uid}">
+      <div class="th">${c.thumb?`<img loading="lazy" src="${blobUrl(c.uid,'t',c.thumb)}" alt="">`:''}</div>
+      <div class="tx"><div class="t1">${esc(c.species||UNKNOWN)}${c.size?`<i>${esc(c.size)} cm</i>`:''}</div>
+      <div class="t2">${esc(fmtDate(c.takenAt))}<br>${c.placeName?'📍 '+esc(c.placeName):'📍 未記錄地點'}${c.bait?'　🪱 '+esc(c.bait):''}</div></div>
+    </button>`).join(''):`<div class="empty">${q?'找不到符合的紀錄':'還沒有紀錄'}</div>`;
+}
+function renderLists(){
+  $('#dlSpecies').innerHTML=speciesList().map(s=>`<option value="${esc(s.zh)}">`).join('');
+  const baits=[...new Set(catches.map(c=>c.bait).filter(Boolean))];
+  $('#dlBait').innerHTML=baits.map(b=>`<option value="${esc(b)}">`).join('');
+}
+function renderBackup(){
+  const last=localStorage.getItem('fd_backup');
+  const sinceN=Number(localStorage.getItem('fd_backup_n')||0);
+  $('#backupInfo').textContent=last?`上次備份：${fmtDate(last)}（備份後新增 ${Math.max(0,catches.length-sinceN)} 筆）`:'尚未備份過。Safari 偶爾會清掉網站資料，建議定期匯出，存到「檔案」或傳給自己。';
+  const need=catches.length>=3 && (!last || catches.length-sinceN>=10);
+  $('#backupBanner').innerHTML=need?`<div class="banner">💾 ${last?'已有 '+(catches.length-sinceN)+' 筆新紀錄還沒備份':'還沒備份過'}，到「設定」匯出一份比較安心。</div>`:'';
+}
+
+/* ============ 分頁 ============ */
+$$('nav [data-v]').forEach(b=>b.onclick=()=>{
+  $$('nav [data-v]').forEach(x=>x.classList.toggle('on',x===b));
+  $$('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+b.dataset.v));
+  if(b.dataset.v==='set') updateStorageInfo();
+  window.scrollTo(0,0);
+});
+$$('.chip').forEach(c=>c.onclick=()=>{filter=c.dataset.f;$$('.chip').forEach(x=>x.classList.toggle('on',x===c));renderDex();});
+$('#q').oninput=renderLog;
+$('#dexGrid').onclick=e=>{const b=e.target.closest('[data-sp]');if(b)openSpecies(b.dataset.sp);};
+$('#logList').onclick=e=>{const b=e.target.closest('[data-uid]');if(b)openEdit(b.dataset.uid);};
+$('#fab').onclick=()=>openEdit(null);
+for(const id of ['ovEdit','ovDet']) $('#'+id).addEventListener('click',e=>{if(e.target.id===id) closeOv(id);});
+function closeOv(id){$('#'+id).classList.remove('on');}
+
+/* ============ 魚種詳情 ============ */
+function openSpecies(zh){
+  const s=speciesList().find(x=>x.zh===zh); if(!s) return;
+  const L=[...s.list].reverse();
+  const big=Math.max(0,...s.list.map(c=>Number(c.size)||0));
+  const places=new Set(s.list.map(c=>c.placeName).filter(Boolean));
+  const baits={}; s.list.forEach(c=>{if(c.bait)baits[c.bait]=(baits[c.bait]||0)+1;});
+  const topBait=Object.entries(baits).sort((a,b)=>b[1]-a[1])[0];
+  $('#sheetDet').innerHTML=`
+    <h2>${esc(s.zh)}<button class="x" data-close>×</button></h2>
+    <div class="hint" style="margin:-6px 0 8px">${esc(s.sci)}　${esc(s.hab)}</div>
+    <div class="hint" style="color:var(--text);font-size:14px">
+      首次釣獲 ${esc(fmtDate(s.list[0].takenAt))}　累計 ${s.list.length} 尾${big?`　最大 ${big} cm`:''}${places.size?`<br>釣點 ${places.size} 處`:''}${topBait?`　最常用餌：${esc(topBait[0])}`:''}
+    </div>
+    <div style="margin-top:8px">${L.map(c=>`
+      <div class="det-row" data-uid="${c.uid}"><div class="th">${c.thumb?`<img src="${blobUrl(c.uid,'t',c.thumb)}" alt="">`:''}</div>
+      <div class="tx" style="font-size:14px;line-height:1.5"><b>${esc(fmtDate(c.takenAt))}</b>${c.size?`　${esc(c.size)} cm`:''}<br><span style="color:var(--mute)">${c.placeName?'📍 '+esc(c.placeName):'📍 —'}${c.bait?'　🪱 '+esc(c.bait):''}</span></div></div>`).join('')}</div>`;
+  $('#sheetDet').onclick=e=>{
+    if(e.target.closest('[data-close]')) return closeOv('ovDet');
+    const r=e.target.closest('[data-uid]'); if(r){closeOv('ovDet');openEdit(r.dataset.uid);}
+  };
+  $('#ovDet').classList.add('on');
+}
+
+/* ============ 新增 / 編輯 ============ */
+let D=null; // draft
+function openEdit(uid){
+  const ex=uid?catches.find(c=>c.uid===uid):null;
+  D=ex?{...ex,_isNew:false}:{uid:uuid(),_isNew:true,takenAt:nowLocal(),species:'',sci:'',bait:'',size:'',note:'',placeName:'',lat:null,lng:null,photo:null,thumb:null,timeSrc:'manual'};
+  D.ai=null;
+  const sh=$('#sheetEdit');
+  sh.innerHTML=`
+    <h2>${ex?'編輯紀錄':'新增釣獲'}<button class="x" data-close>×</button></h2>
+    <div class="photo ${D.thumb?'has':''}" id="photoBox" role="button">${D.photo||D.thumb?`<img id="photoImg" src="${blobUrl(D.uid,'p',D.photo||D.thumb)}" alt="">`:'📷 點這裡從相簿選照片<br><small>選相簿原圖才有拍攝時間與位置</small>'}</div>
+    <div class="hint" id="photoHint"></div>
+
+    <label>魚種</label>
+    <input class="in" id="fSpecies" list="dlSpecies" placeholder="輸入或等 AI 辨識" value="${esc(D.species)}">
+    <div id="aiBox"></div>
+    <button class="btn ghost sm" id="btnAI" style="margin-top:8px">🔍 AI 辨識這張照片</button>
+
+    <label>拍攝時間</label>
+    <input class="in" id="fTime" type="datetime-local" value="${esc(D.takenAt||'')}">
+    <div class="hint" id="timeHint"></div>
+
+    <label>地點</label>
+    <input class="in" id="fPlace" placeholder="例如：安平漁港" value="${esc(D.placeName||'')}">
+    <div class="hint" id="geoHint"></div>
+    <button class="btn ghost sm" id="btnGeo" style="margin-top:8px">📍 使用目前位置</button>
+
+    <div class="two">
+      <div><label>餌</label><input class="in" id="fBait" list="dlBait" placeholder="蝦、路亞軟蟲…" value="${esc(D.bait||'')}"></div>
+      <div><label>尺寸 (cm)</label><input class="in" id="fSize" type="number" inputmode="decimal" min="0" step="0.5" value="${esc(D.size||'')}"></div>
+    </div>
+    <label>備註</label>
+    <textarea class="in" id="fNote" placeholder="天氣、潮汐、釣法…">${esc(D.note||'')}</textarea>
+
+    <button class="btn red" id="btnSave">儲存</button>
+    ${ex?'<button class="btn danger" id="btnDel">刪除這筆</button>':''}`;
+  $('#ovEdit').classList.add('on');
+  sh.scrollTop=0;
+  updateHints();
+  if(ex&&ex.aiConf) showAI({zh:ex.species,sci:ex.sci,confidence:ex.aiConf,alts:[],note:''},true);
+  sh.onclick=onEditClick;
+  $('#fSpecies').oninput=()=>{D.species=$('#fSpecies').value;};
+}
+function updateHints(){
+  const th={exif:'<span class="ok">✓ 時間取自照片</span>',file:'<span class="warn">照片沒有拍攝時間，暫用檔案日期，請確認</span>',manual:'請確認時間',saved:''};
+  $('#timeHint').innerHTML=th[D.timeSrc]??'';
+  if(D.lat!=null){
+    $('#geoHint').innerHTML=`<span class="ok">✓ 座標 ${D.lat.toFixed(5)}, ${D.lng.toFixed(5)}</span>　<a href="https://maps.apple.com/?ll=${D.lat},${D.lng}&q=${encodeURIComponent(D.placeName||'釣點')}" target="_blank" rel="noopener">在地圖開啟</a>`;
+  }else $('#geoHint').textContent='沒有座標。可手動輸入地點，或按下方使用目前位置（要人在釣點）。';
+}
+async function handleFile(file){
+  const hint=$('#photoHint'); hint.innerHTML='<span class="spin"></span>處理照片中…';
+  try{
+    const [ex,im]=await Promise.all([readExif(file),loadImg(file)]);
+    D.photo=await resizeBlob(im,1280,.82);
+    D.thumb=await resizeBlob(im,480,.8);
+    dropUrls(D.uid);
+    $('#photoBox').classList.add('has');
+    $('#photoBox').innerHTML=`<img id="photoImg" src="${blobUrl(D.uid,'p',D.photo)}" alt="">`;
+    if(ex.time){D.takenAt=ex.time;D.timeSrc='exif';}
+    else if(file.lastModified){const d=new Date(file.lastModified);D.takenAt=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;D.timeSrc='file';}
+    $('#fTime').value=D.takenAt;
+    const msgs=[];
+    if(ex.lat!=null){
+      D.lat=ex.lat;D.lng=ex.lng; msgs.push('✓ 已讀到拍攝位置');
+      updateHints();
+      const pn=await reverseGeocode(ex.lat,ex.lng);
+      if(pn){D.placeName=pn;$('#fPlace').value=pn;} else msgs.push('地名查不到，請自己輸入');
+    }else{
+      D.lat=null;D.lng=null;
+      msgs.push('<span class="warn">照片沒有位置資訊</span>（相簿選照片時要在「選項」開啟位置）');
+    }
+    updateHints();
+    hint.innerHTML=msgs.join('　');
+    if(localStorage.getItem('fd_key') && !$('#fSpecies').value.trim()) runAI();
+  }catch(e){ hint.innerHTML=`<span class="warn">${esc(e.message)}</span>`; }
+}
+async function runAI(){
+  if(!D.photo){toast('請先選照片');return;}
+  if(!localStorage.getItem('fd_key')){toast('請先到設定填入 API Key');return;}
+  const btn=$('#btnAI'); btn.disabled=true;
+  $('#aiBox').innerHTML='<div class="ai"><span class="spin"></span>AI 辨識中…</div>';
+  try{
+    const im=await loadImg(D.photo); const small=await resizeBlob(im,1024,.8);
+    const r=await identify(small);
+    showAI(r,false);
+    if(r.zh && r.zh!=='無法辨識'){
+      const p=canon(r.zh); const name=p?p.zh:r.zh;
+      $('#fSpecies').value=name; D.species=name; D.sci=p?p.sci:r.sci; D.aiConf=r.confidence;
+    }
+  }catch(e){
+    $('#aiBox').innerHTML=`<div class="ai warn">${esc(e.message==='NOKEY'?'請先到設定填入 API Key':e.message)}</div>`;
+  }finally{btn.disabled=false;}
+}
+function showAI(r,saved){
+  D.ai=r;
+  const alts=(r.alts||[]).map((a,i)=>`<button data-alt="${i}">${esc(a.zh)}</button>`).join('');
+  $('#aiBox').innerHTML=`<div class="ai">${saved?'上次 AI 判斷':'AI 建議'}：<b>${esc(r.zh)}</b><span class="badge b-${r.confidence}">${CONF[r.confidence]}</span>
+    ${r.sci?`<div style="color:var(--mute);font-size:12.5px">${esc(r.sci)}</div>`:''}
+    ${r.note?`<div style="margin-top:4px">${esc(r.note)}</div>`:''}
+    ${alts?`<div class="hint" style="margin-top:6px">也可能是：</div><div class="alts">${alts}</div>`:''}</div>`;
+}
+async function onEditClick(e){
+  const t=e.target;
+  if(t.closest('[data-close]')) return closeOv('ovEdit');
+  if(t.closest('#photoBox')) return $('#fileInput').click();
+  if(t.id==='btnAI') return runAI();
+  const alt=t.closest('[data-alt]');
+  if(alt){const a=D.ai.alts[+alt.dataset.alt];const p=canon(a.zh);const n=p?p.zh:a.zh;$('#fSpecies').value=n;D.species=n;D.sci=p?p.sci:a.sci;return;}
+  if(t.id==='btnGeo'){
+    t.disabled=true; $('#geoHint').innerHTML='<span class="spin"></span>定位中…';
+    try{
+      const p=await getPosition(); D.lat=p.lat; D.lng=p.lng; updateHints();
+      const pn=await reverseGeocode(p.lat,p.lng); if(pn){D.placeName=pn;$('#fPlace').value=pn;}
+    }catch(err){ $('#geoHint').innerHTML=`<span class="warn">${esc(err.message)}</span>`; }
+    t.disabled=false; return;
+  }
+  if(t.id==='btnSave') return save();
+  if(t.id==='btnDel'){
+    if(!confirm('確定刪除這筆紀錄？無法復原。')) return;
+    await dbDel(D.uid); dropUrls(D.uid); closeOv('ovEdit'); await reload(); toast('已刪除');
+  }
+}
+async function save(){
+  const sp=$('#fSpecies').value.trim();
+  const p=canon(sp);
+  const species=p?p.zh:(sp||UNKNOWN);
+  const sci=p?p.sci:(D.sci&&D.species===sp?D.sci:'');
+  const rec={uid:D.uid,species,sci,takenAt:$('#fTime').value||nowLocal(),placeName:$('#fPlace').value.trim(),lat:D.lat,lng:D.lng,
+    bait:$('#fBait').value.trim(),size:$('#fSize').value,note:$('#fNote').value.trim(),photo:D.photo,thumb:D.thumb,
+    aiConf:D.aiConf||null,createdAt:D._isNew?Date.now():(D.createdAt||Date.now()),updatedAt:Date.now()};
+  if(!sp && !confirm('魚種還是空的，要先存成「未辨識」嗎？')) return;
+  const wasNew=D._isNew; const firstOfSpecies=wasNew && species!==UNKNOWN && !catches.some(c=>c.species===species);
+  const btn=$('#btnSave'); btn.disabled=true;
+  try{
+    await dbPut(rec); dropUrls(rec.uid); closeOv('ovEdit'); await reload();
+    toast(firstOfSpecies?`🎉 新收集：${species}！`:'已儲存',2800);
+  }catch(e){ toast('儲存失敗：'+e.message); btn.disabled=false; }
+}
+$('#fileInput').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f && D) handleFile(f);};
+
+/* ============ 設定 / 備份 ============ */
+$('#apiKey').value=localStorage.getItem('fd_key')||'';
+$('#model').value=localStorage.getItem('fd_model')||'';
+$('#saveKey').onclick=()=>{
+  const k=$('#apiKey').value.trim(), m=$('#model').value.trim();
+  k?localStorage.setItem('fd_key',k):localStorage.removeItem('fd_key');
+  m?localStorage.setItem('fd_model',m):localStorage.removeItem('fd_model');
+  toast('已儲存設定');
+};
+$('#btnExport').onclick=async()=>{
+  if(!catches.length) return toast('還沒有資料可以匯出');
+  toast('打包中…');
+  const items=[];
+  for(const c of catches){
+    const o={...c}; o.photo=c.photo?await blobToDataUrl(c.photo):null; o.thumb=c.thumb?await blobToDataUrl(c.thumb):null; items.push(o);
+  }
+  const blob=new Blob([JSON.stringify({app:'fishdex',version:1,exportedAt:new Date().toISOString(),catches:items})],{type:'application/json'});
+  const name=`fishdex-${nowLocal().slice(0,10)}.json`;
+  const file=new File([blob],name,{type:'application/json'});
+  let done=false;
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:'魚圖鑑備份'});done=true;}catch(e){if(e.name==='AbortError')return;}
+  }
+  if(!done){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),10000);}
+  localStorage.setItem('fd_backup',nowLocal()); localStorage.setItem('fd_backup_n',String(catches.length)); renderBackup(); toast('已匯出');
+};
+$('#btnImport').onclick=()=>$('#importFile').click();
+$('#importFile').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  try{
+    const j=JSON.parse(await f.text());
+    if(j.app!=='fishdex'||!Array.isArray(j.catches)) throw new Error('這不是魚圖鑑的備份檔');
+    let add=0,skip=0; const have=new Set(catches.map(c=>c.uid));
+    for(const o of j.catches){
+      if(!o.uid||have.has(o.uid)){skip++;continue;}
+      o.photo=o.photo?await dataUrlToBlob(o.photo):null; o.thumb=o.thumb?await dataUrlToBlob(o.thumb):null;
+      await dbPut(o); add++;
+    }
+    await reload(); toast(`匯入 ${add} 筆${skip?`，略過重複 ${skip} 筆`:''}`,3000);
+  }catch(err){ toast('匯入失敗：'+err.message,3500); }
+};
+$('#btnWipe').onclick=async()=>{
+  if(!confirm('這會刪掉所有紀錄和照片，無法復原。確定嗎？')) return;
+  if(!confirm('再確認一次：真的要全部清除？（建議先匯出備份）')) return;
+  await dbClear(); urlCache.forEach(u=>URL.revokeObjectURL(u)); urlCache.clear(); await reload(); toast('已清除');
+};
+async function updateStorageInfo(){
+  const el=$('#storeInfo'); let s='';
+  try{
+    if(navigator.storage&&navigator.storage.estimate){const e=await navigator.storage.estimate();s+=`已使用約 ${(e.usage/1048576).toFixed(1)} MB`;}
+    if(navigator.storage&&navigator.storage.persisted){const p=await navigator.storage.persisted();s+=`　持久儲存：${p?'已啟用 ✓':'未啟用'}`;}
+  }catch{}
+  const standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
+  s+=`<br>目前模式：${standalone?'主畫面 App ✓':'瀏覽器分頁（資料與主畫面 App 是分開的）'}`;
+  el.innerHTML=s;
+}
+
+/* ============ 啟動 ============ */
+(async function init(){
+  try{ db=await openDB(); }catch(e){ document.body.innerHTML='<div class="empty">無法開啟本機資料庫。若使用無痕模式請改用一般模式。</div>'; return; }
+  if(navigator.storage&&navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  await reload();
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>

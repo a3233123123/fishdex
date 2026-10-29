@@ -1,0 +1,16 @@
+{
+  "name": "魚圖鑑 FishDex",
+  "short_name": "魚圖鑑",
+  "description": "個人釣魚紀錄與魚種集郵圖鑑",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#efe6cf",
+  "theme_color": "#0f4c5c",
+  "lang": "zh-Hant",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
