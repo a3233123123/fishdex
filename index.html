@@ -550,7 +550,7 @@ function nearbyFish(lat,lng){
   return nearMem.get(k);
 }
 async function fetchNearby(lat,lng,k){
-  const c=lsGet('fd_near_'+k,null); if(c&&Date.now()-c.t<12096e5) return c.v;
+  const c=lsGet('fd_near2_'+k,null); if(c&&Date.now()-c.t<12096e5) return c.v;
   for(const r of [3,8,20]){
     try{
       const res=await fetchT(`https://api.inaturalist.org/v1/observations/species_counts?taxon_id=47178&lat=${lat.toFixed(3)}&lng=${lng.toFixed(3)}&radius=${r}&per_page=60&locale=zh-TW&verifiable=true`,{},12000);
@@ -562,7 +562,7 @@ async function fetchNearby(lat,lng,k){
         if(m.has(nm)) m.get(nm).n+=x.count; else m.set(nm,{zh:nm,sci:canon(zh,x.taxon.name)?.sci||x.taxon.name,n:x.count,photo:x.taxon.default_photo?.square_url||''});
       }
       const list=[...m.values()].sort((a,b)=>b.n-a.n);
-      if(list.length>=8||r===20){ const v={radius:r,list}; lsSet('fd_near_'+k,{t:Date.now(),v}); return v; }
+      if(list.length>=8||r===20){ const v={radius:r,list}; lsSet('fd_near2_'+k,{t:Date.now(),v}); return v; }
     }catch(e){ console.warn('附近魚種',e); return null; }
   }
   return null;
@@ -639,26 +639,65 @@ function extractObj(text,mustKey){
 function refs(){ const r=lsGet('fd_refs',null); return Array.isArray(r)&&r.length?r:[{id:'grip',name:'控魚器（整支）',len:21.5,a:'夾口最前端',b:'軟木握把最末端'}]; }
 function refById(id){ return refs().find(r=>r.id===id)||refs()[0]; }
 
-async function identify(img,ctx,ref){
+/* ---- 辨識：兩段式（先找魚 → 放大裁切再辨識）---- */
+const FRESH_TYPES=['湖泊','埤塘','水庫','溪流','河川','圳道','排水','水溝','滯洪池','牛軛湖'];
+const FISH_KEYS=`【台灣常見易混淆魚種的關鍵特徵】
+- 曲腰魚（紅鰭鮊、翹嘴鮊；Chanodichthys／Culter）：口上位、下頜明顯上翹突出；背鰭小、位置偏後（在腹鰭之後），有一根硬棘；臀鰭基部很長（約 20 條以上鰭條）；腹部有腹稜；體側扁、銀白；紅鰭鮊的尾鰭下葉與臀鰭常帶橘紅色。
+- 奇力仔（䱗）：體型小（多在 20 cm 以下）；口亞上位；側線在胸鰭上方急遽下彎；腹稜從胸鰭基部延伸到肛門；臀鰭基部也長。
+- 虱目魚：口小、端位、無齒、不上翹；只有一個背鰭且位在身體正中央；臀鰭很小、非常靠近尾部；尾鰭極大、深叉；眼有透明脂性眼瞼；多在海水、河口、魚塭，內陸湖泊很少見。
+- 大海鰱：口大、下頜上翹；背鰭最後一根鰭條延長成絲；鱗片很大；多在河口、感潮河段。
+- 烏魚／鮻：兩個分離的背鰭（第一背鰭 4 根硬棘）；頭寬扁、吻鈍、口小；多在河口。
+- 吳郭魚：體高、側扁；背鰭長且前半為硬棘；側線分成上下兩段。
+- 大口黑鱸：口極大、上頜延伸超過眼睛後緣；背鰭硬棘部與軟條部之間有深凹；體側有黑色縱帶。`;
+const P01=(a,W,H)=>Array.isArray(a)&&a.length===2&&isFinite(a[0])&&isFinite(a[1])?[Math.min(1,Math.max(0,a[0]/W)),Math.min(1,Math.max(0,a[1]/H))]:null;
+
+async function locateFish(img,ref,hint){
   const data=await blobToB64(img.blob);
-  const prompt=`這是一張在台灣拍攝的釣獲魚類照片，圖片尺寸 ${img.w}×${img.h} 像素（座標原點在左上角）。
-任務一：辨識主要那條魚的種類。
-${ctx?'【地點線索】\n'+ctx+'名單只是參考，放流、外來種、名單外的魚都可能出現；以照片外觀特徵為準。\n':''}【台灣淡水常見混淆】曲腰魚（翹嘴鮊、紅鰭鮊：嘴巴明顯上翹、體側扁銀白、眼大，zh 請用「曲腰魚」）；奇力仔體型小、嘴也上翹；虱目魚嘴小端位不上翹、頭錐形；烏魚與鮻吻鈍、兩個分開的背鰭。
-任務二：標出量長度用的四個點（像素座標，整數）：
-- snout：魚嘴最前端
-- tail：尾鰭最末端（全長的終點）
-- refA：參考物「${ref.name}」的${ref.a}
-- refB：參考物「${ref.name}」的${ref.b}
-看不到參考物時，refA、refB 填 null。
-只回傳一個 JSON 物件，不要其他文字：
-{"zh":"台灣常用中文名","sci":"學名","confidence":"high|medium|low","alts":[{"zh":"","sci":""}],"note":"一句話說明辨識依據","snout":[x,y],"tail":[x,y],"refA":[x,y],"refB":[x,y]}
-alts 最多 2 個；看不出是魚 zh 填「無法辨識」；不確定時 confidence 誠實填 low。`;
-  const {text}=await claude([{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:prompt}],{maxTokens:1200});
+  const prompt=`圖片尺寸 ${img.w}×${img.h} 像素，座標原點在左上角。找出照片中被釣起的那條魚，回傳整數像素座標：
+- box：整條魚（含尾鰭）的外框 [左,上,右,下]
+- snout：魚嘴最前端；tail：尾鰭最末端（全長終點）
+- refA：參考物「${ref.name}」的${ref.a}；refB：參考物「${ref.name}」的${ref.b}（看不到參考物就填 null）
+- mouth_visible：魚嘴的形狀和方向是否清楚可見（被控魚器、手指、魚鉤遮住就填 false）
+- guesses：你初步猜的 3 個魚種（台灣中文名）
+${hint?'地點參考：'+hint+'\n':''}只輸出 JSON：{"box":[0,0,0,0],"snout":[x,y],"tail":[x,y],"refA":[x,y],"refB":[x,y],"mouth_visible":true,"guesses":["","",""]}`;
+  const {text}=await claude([{type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:prompt}],{maxTokens:600});
+  const o=extractObj(text,'snout')||extractObj(text,'box')||{};
+  const W=img.w,H=img.h; let box=null;
+  if(Array.isArray(o.box)&&o.box.length===4&&o.box.every(isFinite)){
+    const [x1,y1,x2,y2]=o.box; if(x2-x1>8&&y2-y1>8) box=[x1/W,y1/H,x2/W,y2/H].map(v=>Math.min(1,Math.max(0,v)));
+  }
+  return {box,mouth:o.mouth_visible!==false,guesses:Array.isArray(o.guesses)?o.guesses.filter(Boolean).slice(0,3):[],
+    pts:{s:P01(o.snout,W,H),t:P01(o.tail,W,H),a:P01(o.refA,W,H),b:P01(o.refB,W,H)}};
+}
+function cropImg(im,box,maxSide,q){
+  const W=im.naturalWidth,H=im.naturalHeight;
+  let [x1,y1,x2,y2]=box||[0,0,1,1]; const pw=(x2-x1)*.12,ph=(y2-y1)*.12;
+  x1=Math.max(0,x1-pw);y1=Math.max(0,y1-ph);x2=Math.min(1,x2+pw);y2=Math.min(1,y2+ph);
+  const sx=x1*W,sy=y1*H,sw=(x2-x1)*W,sh=(y2-y1)*H;
+  const s=Math.min(2,maxSide/Math.max(sw,sh)); const w=Math.max(1,Math.round(sw*s)),h=Math.max(1,Math.round(sh*s));
+  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(im,sx,sy,sw,sh,0,0,w,h);
+  return new Promise(r=>c.toBlob(b=>r({blob:b,w,h}),'image/jpeg',q));
+}
+async function classifyFish({crop,full,ctx,refsImgs,mouth,fixes,fresh}){
+  const content=[{type:'text',text:'圖 1：釣獲魚的放大裁切圖'},{type:'image',source:{type:'base64',media_type:'image/jpeg',data:await blobToB64(crop.blob)}}];
+  if(full){ content.push({type:'text',text:'圖 2：整張原圖（看環境、比例用）'},{type:'image',source:{type:'base64',media_type:'image/jpeg',data:await blobToB64(full.blob)}}); }
+  for(const [i,r] of refsImgs.entries()){ content.push({type:'text',text:`參考 ${i+1}：使用者以前釣到、並親自確認是「${r.zh}」的照片${r.water?`（${r.water}）`:''}`}); content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:await blobToB64(r.blob)}}); }
+  const prompt=`你是台灣淡水與河口魚類的分類專家，請辨識圖 1 這條釣獲魚。
+${mouth?'':'⚠️ 這張照片魚嘴被控魚器或手遮住，看不出嘴型，請不要用「嘴是否上翹」來判斷，改用鰭的位置、臀鰭長度、腹稜、側線、體型。\n'}${ctx?'【地點線索】\n'+ctx:''}${fresh?'這是內陸淡水水域：海水魚可能性極低；虱目魚、烏魚、鮻、大海鰱這類河口魚只在靠海、感潮河段或魚塭附近才常見。\n':''}${fixes?'【使用者過去的糾正】'+fixes+'\n':''}${refsImgs.length?'【參考照片】後面附的參考照片是使用者確認過的真實魚種，若圖 1 與某張參考照片特徵一致，請優先採用。\n':''}
+${FISH_KEYS}
+
+步驟：
+1. 在 features 欄位逐項描述圖 1「實際看得到」的特徵：口的位置與方向、背鰭數量與位置（相對腹鰭）、臀鰭基部長短與位置、腹部有無稜、側線走向、尾鰭形狀、鱗片大小、體型與顏色。看不到就寫「看不到」，不要猜。
+2. 用看得到的特徵逐一比對候選，排除不符合的。
+3. 結合地點：優先考慮附近有紀錄的魚、使用者在這裡釣過的魚；名單外的魚、或和水域類型不符的魚，只有在多項特徵都明確吻合時才選，而且 confidence 要降一級。
+只輸出一個 JSON 物件：
+{"features":"逐項特徵描述","zh":"台灣常用中文名（曲腰魚類請寫「曲腰魚」）","sci":"學名","confidence":"high|medium|low","alts":[{"zh":"","sci":""}],"note":"一句話說明關鍵依據"}
+alts 最多 2 個；看不出是魚 zh 填「無法辨識」。`;
+  content.push({type:'text',text:prompt});
+  const {text}=await claude(content,{maxTokens:1600});
   const o=extractObj(text,'zh'); if(!o) throw new Error('AI 回傳格式無法解析，請再按一次');
-  const P=(a)=>Array.isArray(a)&&a.length===2&&isFinite(a[0])&&isFinite(a[1])?[Math.min(1,Math.max(0,a[0]/img.w)),Math.min(1,Math.max(0,a[1]/img.h))]:null;
   return {zh:String(o.zh||'').trim(),sci:String(o.sci||'').trim(),confidence:['high','medium','low'].includes(o.confidence)?o.confidence:'low',
-    alts:Array.isArray(o.alts)?o.alts.slice(0,2).filter(a=>a&&a.zh):[],note:String(o.note||''),
-    pts:{s:P(o.snout),t:P(o.tail),a:P(o.refA),b:P(o.refB)}};
+    alts:Array.isArray(o.alts)?o.alts.slice(0,2).filter(a=>a&&a.zh):[],note:String(o.note||''),features:String(o.features||'')};
 }
 const CONF={high:'高信心',medium:'中信心',low:'低信心'};
 
@@ -862,7 +901,7 @@ let D=null;
 function openEdit(uid){
   const ex=uid?catches.find(c=>c.uid===uid):null;
   D=ex?{...ex,_isNew:false}:{uid:uuid(),_isNew:true,takenAt:nowLocal(),timeSrc:'manual',species:'',sci:'',length:'',lenMethod:'',measure:null,lureId:'',note:'',place:'',water:null,lat:null,lng:null,photo:null,thumb:null,wx:null,moon:null};
-  D.ai=null; D.near=null; D.aiPts=D.measure?.pts||null;
+  D.ai=null; D.near=null; D.aiPts=D.measure?.pts||null; D.sciFor=D.species;
   const sh=$('#sheetEdit');
   sh.innerHTML=`<h2>${ex?'釣獲紀錄':'新增釣獲'}<button class="x" data-close>×</button></h2>
    <div class="photo ${D.thumb?'has':''}" id="photoBox" role="button">${D.photo||D.thumb?`<img src="${blobUrl(D.uid,'p',D.photo||D.thumb)}" alt="">`:'📷 點這裡從相簿選照片<br><small>讓控魚器和魚一起入鏡，就能量長度</small>'}</div>
@@ -979,7 +1018,7 @@ async function handleFile(file){
   try{
     const [ex,im]=await Promise.all([readExif(file),loadImg(file)]);
     D.photo=(await resizeBlob(im,1600,.85)).blob; D.thumb=(await resizeBlob(im,480,.8)).blob;
-    D._aiImg=await resizeBlob(im,1024,.82); D.measure=null; D.aiPts=null;
+    D._src=im; D._aiImg=await resizeBlob(im,1024,.82); D.measure=null; D.aiPts=null; D.fishCrop=null; D.aiPred=null;
     dropUrls(D.uid);
     $('#photoBox').classList.add('has'); $('#photoBox').innerHTML=`<img src="${blobUrl(D.uid,'p',D.photo)}" alt="">`;
     if(ex.time){D.takenAt=ex.time;D.timeSrc='exif';}
@@ -994,28 +1033,51 @@ async function handleFile(file){
     }
   }catch(e){ hint.innerHTML=`<span class="warn">${esc(e.message)}</span>`; }
 }
+function pickRefs(guesses){
+  const pool=catches.filter(c=>c.uid!==D.uid&&c.species&&c.species!==UNKNOWN&&(c.fishCrop||c.thumb));
+  const want=[]; const add=n=>{ if(n&&n!==UNKNOWN&&!want.includes(n)) want.push(n); };
+  guesses.map(g=>nameOf(g)).forEach(add);
+  if(D.lat!=null) pool.filter(c=>c.lat!=null&&distKm(D.lat,D.lng,c.lat,c.lng)<=2).forEach(c=>add(c.species));
+  const out=[];
+  for(const n of want){ const c=pool.find(x=>x.species===n); if(c) out.push({zh:n,water:c.water?.name||'',blob:c.fishCrop||c.thumb}); if(out.length>=4) break; }
+  return out;
+}
+function fixesText(){
+  const f=Object.entries(lsGet('fd_fix',{})).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  return f.map(([k,n])=>{const [a,u]=k.split('→');return `AI 曾把「${u}」誤判成「${a}」${n} 次`;}).join('；');
+}
 async function runAI(){
   if(!D.photo){toast('請先選照片');return;}
   if(!localStorage.getItem('fd_key')){toast('請先到「我的 → 設定」填入 API Key');return;}
   const btn=$('#btnAI'); btn.disabled=true;
-  $('#aiBox').innerHTML='<div class="ai"><span class="spin"></span>AI 辨識魚種、標記長度中…</div>';
+  const step=t=>{ $('#aiBox').innerHTML=`<div class="ai"><span class="spin"></span>${t}</div>`; };
+  step('1/2 找出魚的位置…');
   try{
-    if(!D._aiImg){ const im=await loadImg(D.photo); D._aiImg=await resizeBlob(im,1024,.82); }
+    if(!D._src) D._src=await loadImg(D.photo);
+    if(!D._aiImg) D._aiImg=await resizeBlob(D._src,1024,.82);
     const near=D.near; const mine=myFishHere(); let ctx='';
-    const wn=$('#fWater').value.trim();
-    if(wn) ctx+=`水域：${wn}${D.water?.type?`（${D.water.type}）`:''}${D.place?'，'+D.place:''}\n`; else if(D.place) ctx+=`地點：${D.place}\n`;
+    const wn=$('#fWater').value.trim(); const wt=D.water&&D.water.name===wn?D.water.type:'';
+    if(wn) ctx+=`水域：${wn}${wt?`（${wt}）`:''}${D.place?'，'+D.place:''}\n`; else if(D.place) ctx+=`地點：${D.place}\n`;
     if(mine.length) ctx+=`使用者以前在這裡釣到過：${mine.map(([n,c])=>`${n}×${c}`).join('、')}\n`;
     if(near&&near.list.length) ctx+=`iNaturalist 附近 ${near.radius} 公里內的魚類紀錄（多的在前）：${near.list.slice(0,30).map(x=>`${x.zh}(${x.sci})`).join('、')}\n`;
+    const hint=[wn&&(wn+(wt?'（'+wt+'）':'')),near&&near.list.length?'附近常見：'+near.list.slice(0,10).map(x=>x.zh).join('、'):''].filter(Boolean).join('；');
     const ref=refById(lsGet('fd_ref_last','grip'));
-    const r=await identify(D._aiImg,ctx,ref);
-    D.usedCtx=!!ctx; showAI(r,false);
-    if(r.zh&&r.zh!=='無法辨識'){ const name=nameOf(r.zh,r.sci); $('#fSpecies').value=name; D.species=name; D.sci=canon(r.zh,r.sci)?.sci||r.sci; D.aiConf=r.confidence; }
-    if(r.pts.s&&r.pts.t){
-      D.aiPts={...r.pts,refId:ref.id};
-      if(r.pts.a&&r.pts.b&&D.lenMethod!=='measure'&&D.lenMethod!=='manual'){
-        const L=calcLen(r.pts,D._aiImg.w,D._aiImg.h,ref.len);
+    const loc=await locateFish(D._aiImg,ref,hint);
+    step('2/2 放大魚身，仔細比對特徵…');
+    const crop=await cropImg(D._src,loc.box,1280,.88);
+    const full=loc.box?await resizeBlob(D._src,640,.75):null;
+    D.fishCrop=(await cropImg(D._src,loc.box,400,.8)).blob;
+    const refsImgs=pickRefs(loc.guesses);
+    const r=await classifyFish({crop,full,ctx,refsImgs,mouth:loc.mouth,fixes:fixesText(),fresh:FRESH_TYPES.includes(wt)});
+    D.usedCtx=!!ctx; D.usedRefs=refsImgs.length; D.mouthHidden=!loc.mouth; showAI(r,false);
+    if(r.zh&&r.zh!=='無法辨識'){ const name=nameOf(r.zh,r.sci); $('#fSpecies').value=name; D.species=name; D.sci=canon(r.zh,r.sci)?.sci||r.sci; D.sciFor=name; D.aiConf=r.confidence; D.aiPred=name; }
+    const pts=loc.pts;
+    if(pts.s&&pts.t){
+      D.aiPts={...pts,refId:ref.id};
+      if(pts.a&&pts.b&&D.lenMethod!=='measure'&&D.lenMethod!=='manual'){
+        const L=calcLen(pts,D._aiImg.w,D._aiImg.h,ref.len);
         if(L){ D.length=L.toFixed(1); D.lenMethod='ai'; $('#fLen').value=D.length; updateLenHint(); }
-      }else if(!r.pts.a) $('#lenHint').innerHTML='<span class="warn">照片裡找不到參考物，可按「用照片量」手動標記</span>';
+      }else if(!pts.a) $('#lenHint').innerHTML='<span class="warn">照片裡找不到參考物，可按「用照片量」手動標記</span>';
     }
   }catch(e){ $('#aiBox').innerHTML=`<div class="ai warn">${esc(e.message)}</div>`; }
   finally{ btn.disabled=false; }
@@ -1026,7 +1088,9 @@ function showAI(r,saved){
   $('#aiBox').innerHTML=`<div class="ai">${saved?'上次 AI 判斷':'AI 建議'}：<b>${esc(r.zh)}</b><span class="badge b-${r.confidence}">${CONF[r.confidence]}</span>
    ${r.sci?`<div style="color:var(--mute);font-size:12.5px"><i>${esc(r.sci)}</i></div>`:''}${r.note?`<div style="margin-top:4px">${esc(r.note)}</div>`:''}
    ${alts?`<div class="hint" style="margin-top:6px">也可能是：</div><div class="alts">${alts}</div>`:''}
-   ${!saved&&D.usedCtx?'<div class="hint">已參考這個水域附近的魚類紀錄</div>':''}</div>`;
+   ${r.features?`<details style="margin-top:6px"><summary class="hint" style="display:list-item;cursor:pointer">AI 觀察到的特徵</summary><div class="hint">${esc(r.features)}</div></details>`:''}
+   ${!saved?`<div class="hint">${[D.usedCtx?'已參考附近魚類紀錄':'',D.usedRefs?`已比對你確認過的 ${D.usedRefs} 張照片`:'',D.mouthHidden?'⚠️ 魚嘴被遮住，準確度會下降':''].filter(Boolean).join('・')}</div>`:''}
+   ${!saved?'<div class="hint">不對的話直接改魚種再存檔，AI 下次會記得。</div>':''}</div>`;
 }
 async function onEditClick(e){
   const t=e.target;
@@ -1035,8 +1099,8 @@ async function onEditClick(e){
   if(t.id==='btnAI') return runAI();
   if(t.id==='btnMeasure') return openMeasure();
   if(t.id==='wxRetry'){ e.preventDefault(); return refreshEnv(); }
-  const pick=t.closest('[data-pick]'); if(pick){ const n=nameOf(pick.dataset.pick,pick.dataset.sci); $('#fSpecies').value=n; D.species=n; D.sci=canon(n,pick.dataset.sci)?.sci||pick.dataset.sci||''; return; }
-  const alt=t.closest('[data-alt]'); if(alt){ const a=D.ai.alts[+alt.dataset.alt]; const n=nameOf(a.zh,a.sci); $('#fSpecies').value=n; D.species=n; D.sci=canon(a.zh,a.sci)?.sci||a.sci; return; }
+  const pick=t.closest('[data-pick]'); if(pick){ const n=nameOf(pick.dataset.pick,pick.dataset.sci); $('#fSpecies').value=n; D.species=n; D.sci=canon(n,pick.dataset.sci)?.sci||pick.dataset.sci||''; D.sciFor=n; return; }
+  const alt=t.closest('[data-alt]'); if(alt){ const a=D.ai.alts[+alt.dataset.alt]; const n=nameOf(a.zh,a.sci); $('#fSpecies').value=n; D.species=n; D.sci=canon(a.zh,a.sci)?.sci||a.sci; D.sciFor=n; return; }
   if(t.closest('[data-lure-new2]')) return openLure(null,true);
   const lu=t.closest('[data-lure]'); if(lu){ D.lureId=D.lureId===lu.dataset.lure?'':lu.dataset.lure; return renderLurePick(); }
   if(t.id==='btnGeo'){
@@ -1049,20 +1113,22 @@ async function onEditClick(e){
   if(t.id==='btnDel'){ if(!confirm('確定刪除這筆紀錄？無法復原。')) return; await dbDel('catches',D.uid); dropUrls(D.uid); closeOv('ovEdit'); await reload(); toast('已刪除'); }
 }
 async function save(){
-  const sp=$('#fSpecies').value.trim(); const species=sp?nameOf(sp,D.sci):UNKNOWN;
-  const sci=canon(sp,D.sci)?.sci||(D.species===sp?D.sci:'')||'';
+  const sp=$('#fSpecies').value.trim(); const pn=sp?canon(sp,null):null;
+  const species=sp?(pn?pn.zh:sp):UNKNOWN;
+  const sci=pn?pn.sci:(D.sciFor===sp?D.sci:'')||'';
   if(!sp&&!confirm('魚種還是空的，要先存成「未辨識」嗎？')) return;
   const wn=$('#fWater').value.trim();
   const water=wn?{...(D.water||{}),name:wn}:null;
   const len=$('#fLen').value?Math.round(Number($('#fLen').value)*10)/10:'';
   const rec={uid:D.uid,species,sci,takenAt:$('#fTime').value||nowLocal(),lat:D.lat,lng:D.lng,water,place:D.place||'',
     length:len,lenMethod:len?(D.lenMethod||'manual'):'',measure:D.measure||null,lureId:D.lureId||'',note:$('#fNote').value.trim(),
-    wx:D.wx||null,moon:moonInfo($('#fTime').value||nowLocal()),photo:D.photo,thumb:D.thumb,aiConf:D.aiConf||null,
+    wx:D.wx||null,moon:moonInfo($('#fTime').value||nowLocal()),photo:D.photo,thumb:D.thumb,fishCrop:D.fishCrop||null,aiConf:D.aiConf||null,
     createdAt:D._isNew?Date.now():(D.createdAt||Date.now()),updatedAt:Date.now()};
   const col=collected(); const prev=col.get(species);
   const first=species!==UNKNOWN&&(!prev||(prev.list.length===1&&prev.list[0].uid===rec.uid));
   const prevBest=prev?Math.max(0,...prev.list.filter(c=>c.uid!==rec.uid).map(c=>Number(c.length)||0)):0;
   const pb=!first&&len&&prevBest&&len>prevBest;
+  if(D.aiPred&&species!==UNKNOWN&&species!==D.aiPred){ const f=lsGet('fd_fix',{}); const k=D.aiPred+'→'+species; f[k]=(f[k]||0)+1; lsSet('fd_fix',f); }
   const btn=$('#btnSave'); btn.disabled=true;
   try{
     await dbPut('catches',rec); dropUrls(rec.uid); closeOv('ovEdit'); await reload();
@@ -1246,7 +1312,7 @@ $('#btnExport').onclick=async()=>{
   toast('打包中…');
   const enc=async(o,keys)=>{const x={...o};for(const k of keys) x[k]=o[k]?await blobToDataUrl(o[k]):null;return x;};
   const data={app:'fishdex',version:2,exportedAt:new Date().toISOString(),refs:refs(),
-    catches:await Promise.all(catches.map(c=>enc(c,['photo','thumb']))),lures:await Promise.all(lures.map(l=>enc(l,['photo']))),species:await dbAll('species')};
+    catches:await Promise.all(catches.map(c=>enc(c,['photo','thumb','fishCrop']))),lures:await Promise.all(lures.map(l=>enc(l,['photo']))),species:await dbAll('species'),fixes:lsGet('fd_fix',{})};
   const blob=new Blob([JSON.stringify(data)],{type:'application/json'}); const name=`fishdex-${nowLocal().slice(0,10)}.json`;
   const file=new File([blob],name,{type:'application/json'}); let done=false;
   if(navigator.canShare&&navigator.canShare({files:[file]})){ try{await navigator.share({files:[file],title:'魚圖鑑備份'});done=true;}catch(e){if(e.name==='AbortError')return;} }
@@ -1260,10 +1326,10 @@ $('#importFile').onchange=async e=>{
     const j=JSON.parse(await f.text()); if(j.app!=='fishdex') throw new Error('這不是魚圖鑑的備份檔');
     if(j.version!==2) throw new Error('這是舊版備份，新版無法匯入');
     let add=0; const have=new Set(catches.map(c=>c.uid));
-    for(const o of j.catches||[]){ if(!o.uid||have.has(o.uid)) continue; o.photo=o.photo?await dataUrlToBlob(o.photo):null; o.thumb=o.thumb?await dataUrlToBlob(o.thumb):null; await dbPut('catches',o); add++; }
+    for(const o of j.catches||[]){ if(!o.uid||have.has(o.uid)) continue; o.photo=o.photo?await dataUrlToBlob(o.photo):null; o.thumb=o.thumb?await dataUrlToBlob(o.thumb):null; o.fishCrop=o.fishCrop?await dataUrlToBlob(o.fishCrop):null; await dbPut('catches',o); add++; }
     for(const l of j.lures||[]){ l.photo=l.photo?await dataUrlToBlob(l.photo):null; await dbPut('lures',l); }
     for(const s of j.species||[]) await dbPut('species',s);
-    if(Array.isArray(j.refs)&&j.refs.length) lsSet('fd_refs',j.refs);
+    if(Array.isArray(j.refs)&&j.refs.length) lsSet('fd_refs',j.refs); if(j.fixes) lsSet('fd_fix',j.fixes);
     await reload(); toast(`匯入 ${add} 筆紀錄`,3000);
   }catch(err){ toast('匯入失敗：'+err.message,3500); }
 };
@@ -1284,6 +1350,7 @@ async function updateStorageInfo(){
 (async function init(){
   try{ db=await openDB(); }catch(e){ document.body.innerHTML='<div class="empty">無法開啟本機資料庫。若使用無痕模式請改用一般模式。</div>'; return; }
   if(navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
+  try{ Object.keys(localStorage).filter(k=>k.startsWith('fd_near_')).forEach(k=>localStorage.removeItem(k)); }catch{}
   await reload();
   if('serviceWorker' in navigator){
     const had=!!navigator.serviceWorker.controller; let done=false;
